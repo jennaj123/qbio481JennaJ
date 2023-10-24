@@ -1,0 +1,128 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+## Install packages
+# Bioconductor
+if (!requireNamespace("BiocManager", quietly = TRUE))
+  install.packages("BiocManager")
+BiocManager::install("DNAshapeR", update = TRUE)
+# Caret
+install.packages("vctrs")
+install.packages("caret", repos = "http://cran.us.r-project.org")
+install.packages("glmnet", repos = "http://cran.us.r-project.org")
+
+## Initialization
+library(DNAshapeR)
+library(caret)
+library(glmnet)
+workingPath <- "/Users/JennaJacobs/Documents/USC/fall23/qbio481/QBIO481/gcPBM/"
+setwd(workingPath)
+```
+
+```{r}
+# Assume datasets is a vector of dataset names: c("Mad", "Max", "Myc")
+datasets <- c("Mad.txt", "Max.txt", "Myc.txt")
+results <- list()
+
+for (dataset in datasets) {
+  fn_fasta <- paste0(workingPath, dataset, ".fa")
+  
+  
+  ## Predict DNA shapes
+  pred <- getShape(fn_fasta)
+  
+  
+  ## Encode feature vectors
+  res <- list()
+  featureTypes <- list(c("1-mer"), c("1-mer", "1-shape"))
+  
+  for (featureType in featureTypes){
+    featureVector <- encodeSeqShape(fn_fasta, pred, featureType)
+    head(featureVector)
+  
+  
+    ## Data preparation
+    fn_exp <- paste0(workingPath, dataset)
+    exp_data <- read.table(fn_exp)
+    df <- data.frame(affinity=exp_data$V2, featureVector)
+  
+    ## Arguments setting for Caret
+    trainControl <- trainControl(method = "cv", number = 10, savePredictions = TRUE)
+  
+  
+    ## Prediction with L2-regularized
+    model <- train(affinity~., data = df, trControl=trainControl, 
+                 method = "glmnet", tuneGrid = data.frame(alpha = 0, lambda = c(2^c(-15:15))))
+  
+    summary(model)
+  
+    rsquared <- model$results$Rsquared
+    
+    
+    res <- append(res,rsquared)
+  }
+  results <- c(results, list(res))
+}
+
+
+##calculate the average R-squared for each model:
+aveResults <- list()
+for(i in seq_along(datasets)){
+  res <- results[i]
+  dataset <-  datasets[[i]]
+  res_non_na <- unlist(res)[!is.na(unlist(res))]
+  ave = if(length(res_non_na) > 0) mean(res_non_na) else NaN
+  aveResults <- append(aveResults, ave)
+  print(dataset)
+  print(ave)
+}
+
+
+```
+
+```{r}
+# Load the necessary library
+library(ggplot2)
+
+aveResults_1mer <- aveResults[seq(1, length(aveResults), by=2)]
+aveResults_1mer_shape <- aveResults[seq(2, length(aveResults), by=2)]
+
+# Create a data frame for plotting
+plot_data <- data.frame(
+  Dataset = rep(datasets, each=2),
+  Model = factor(rep(c("1-mer", "1-mer+shape"), times=length(datasets))),
+  Rsquared = c(unlist(aveResults_1mer), unlist(aveResults_1mer_shape))
+)
+
+# Create the plot
+ggplot(plot_data, aes(x=Dataset, y=Rsquared, fill=Model)) +
+  geom_bar(stat="identity", position=position_dodge()) +
+  ylab("Average R-squared") +
+  xlab("Dataset") +
+  ggtitle("Comparison of 1-mer and 1-mer+shape models") +
+  theme_minimal()
+```
+```{r}
+bound.fa <- read_fasta("/Users/JennaJacobs/Documents/USC/fall23/qbio481/QBIO481/CTCF/bound.fa")
+unbound.fa <- read_fasta("/Users/JennaJacobs/Documents/USC/fall23/qbio481/QBIO481/CTCF/unbound.fa")
+```
+
+```{r}
+BiocManager::install("Biostrings")
+library(Biostrings)
+
+install.packages("seqinr")
+library(seqinr)
+
+file_path <- file.path("..", "CTCF", "bound.fa")
+sequences <- read.fasta(file_path, as.string = TRUE)
+
+un_file_path <- file.path("..", "CTCF", "unbound.fa")
+un_sequences <- read.fasta(un_file_path, as.string = TRUE)
+
+
+```
+
